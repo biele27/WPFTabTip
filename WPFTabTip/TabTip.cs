@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using Microsoft.Win32;
@@ -55,10 +56,27 @@ namespace WPFTabTip
         /// </summary>
         public static void Open()
         {
+            string dotnetVersion = AppDomain.CurrentDomain.SetupInformation.TargetFrameworkName;
+
             if (EnvironmentEx.GetOSVersion() == OSVersion.Win10)
                 EnableTabTipOpenInDesctopModeOnWin10();
 
-            Process.Start(TabTipExecPath);
+            if (!string.IsNullOrEmpty(dotnetVersion) && dotnetVersion.Contains("NETCoreApp"))
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "cmd",
+                    WindowStyle = ProcessWindowStyle.Normal,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    Arguments = $"/c start {Path.GetFileName(TabTipExecPath)}"
+                };
+                Process.Start(psi);
+            }
+            else
+            {
+                Process.Start(TabTipExecPath);
+            }
         }
 
         private static void EnableTabTipOpenInDesctopModeOnWin10()
