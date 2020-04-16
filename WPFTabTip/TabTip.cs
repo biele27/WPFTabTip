@@ -65,11 +65,8 @@ namespace WPFTabTip
             {
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "cmd",
-                    WindowStyle = ProcessWindowStyle.Normal,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    Arguments = $"/c start {Path.GetFileName(TabTipExecPath)}"
+                    FileName = Path.GetFileName(TabTipExecPath),
+                    UseShellExecute = true,
                 };
                 Process.Start(psi);
             }
