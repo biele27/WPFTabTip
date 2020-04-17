@@ -12,148 +12,73 @@ namespace WPFTabTip
 {
     internal static class AnimationHelper
     {
+        #region Private Fields
+
         private static readonly Dictionary<FrameworkElement, Storyboard> MoveRootVisualStoryboards = new Dictionary<FrameworkElement, Storyboard>();
 
-        private static Point GetCurrentUIElementPoint(Visual element) => element.PointToScreen(new Point(0, 0)).ToPointInLogicalUnits(element);
+        #endregion Private Fields
+
+        #region Internal Events
 
         internal static event Action<Exception> ExceptionCatched;
-        private static Rectangle ToRectangleInLogicalUnits(this Rectangle rectangleToConvert, DependencyObject element)
+
+        #endregion Internal Events
+
+        #region Internal Methods
+
+        internal static void GetEverythingInToWorkAreaWithTabTipClosed()
         {
-            const float logicalUnitDpi = 96.0f;
-            // ReSharper disable once AssignNullToNotNullAttribute
-            IntPtr windowHandle = new WindowInteropHelper(Window.GetWindow(element)).EnsureHandle();
-
-            using (Graphics graphics = Graphics.FromHwnd(windowHandle))
-                return Rectangle.FromLTRB(
-                    left: (int) (rectangleToConvert.Left * logicalUnitDpi / graphics.DpiX), 
-                    top: (int) (rectangleToConvert.Top * logicalUnitDpi / graphics.DpiY), 
-                    right: (int) (rectangleToConvert.Right * logicalUnitDpi / graphics.DpiX), 
-                    bottom: (int) (rectangleToConvert.Bottom * logicalUnitDpi / graphics.DpiY));
-        }
-
-        private static Point ToPointInLogicalUnits(this Point point, DependencyObject element)
-        {
-            const float logicalUnitDpi = 96.0f;
-
-            // ReSharper disable once AssignNullToNotNullAttribute
-            IntPtr windowHandle = new WindowInteropHelper(Window.GetWindow(element)).EnsureHandle();
-
-            using (Graphics graphics = Graphics.FromHwnd(windowHandle))
-                return new Point(x: point.X * logicalUnitDpi / graphics.DpiX, y: point.Y * logicalUnitDpi / graphics.DpiY);
-        }
-
-        // ReSharper disable once UnusedMember.Local
-        private static Point GetCurrentUIElementPointRelativeToRoot(UIElement element)
-        {
-            return element.TransformToAncestor(GetRootVisualForAnimation(element)).Transform(new Point(0, 0));
-        }
-
-        private static Rectangle GetUIElementRect(UIElement element)
-        {
-            Rect rect = element.RenderTransform.TransformBounds(new Rect(GetCurrentUIElementPoint(element), element.RenderSize));
-
-            return Rectangle.FromLTRB(
-                left: (int)rect.Left,
-                top: (int)rect.Top,
-                right: (int)rect.Right,
-                bottom: (int)rect.Bottom);
-        }
-
-        private static Rectangle GetCurrentScreenBounds(DependencyObject element) => 
-            new Screen(Window.GetWindow(element)).Bounds.ToRectangleInLogicalUnits(element);
-
-        private static Rectangle GetWorkAreaWithTabTipOpened(DependencyObject element)
-        {
-            Rectangle workAreaWithTabTipClosed = GetWorkAreaWithTabTipClosed(element);
-
-            int tabTipRectangleTop = TabTip.GetWouldBeTabTipRectangle().ToRectangleInLogicalUnits(element).Top;
-
-            int bottom = (tabTipRectangleTop == 0) ? workAreaWithTabTipClosed.Bottom / 2 : tabTipRectangleTop; // in case TabTip is not yet opened
-
-            return Rectangle.FromLTRB(
-                left: workAreaWithTabTipClosed.Left,
-                top: workAreaWithTabTipClosed.Top,
-                right: workAreaWithTabTipClosed.Right,
-                bottom: bottom);
-        }
-
-        private static Rectangle GetWorkAreaWithTabTipClosed(DependencyObject element)
-        {
-            Rectangle currentScreenBounds = GetCurrentScreenBounds(element);
-            Taskbar taskbar = new Taskbar();
-            Rectangle taskbarBounds = taskbar.Bounds.ToRectangleInLogicalUnits(element);
-
-            switch (taskbar.Position)
+            try
             {
-                case TaskbarPosition.Bottom:
-                    return Rectangle.FromLTRB(
-                        left: currentScreenBounds.Left,
-                        top: currentScreenBounds.Top,
-                        right: currentScreenBounds.Right,
-                        bottom: taskbarBounds.Top);
-                case TaskbarPosition.Top:
-                    return Rectangle.FromLTRB(
-                        left: currentScreenBounds.Left, 
-                        top: taskbarBounds.Bottom, 
-                        right: currentScreenBounds.Right, 
-                        bottom: currentScreenBounds.Bottom);
-                default:
-                    return currentScreenBounds;
+                foreach (KeyValuePair<FrameworkElement, Storyboard> moveRootVisualStoryboard in MoveRootVisualStoryboards)
+                {
+                    Window window = moveRootVisualStoryboard.Key as Window;
+                    // if window exist also check if it has not been closed
+                    if (window != null && new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                        MoveRootVisualBy(
+                            rootVisual: window,
+                            moveBy: GetYOffsetToMoveUIElementInToWorkArea(
+                                uiElementRectangle: GetWindowRectangle(window),
+                                workAreaRectangle: GetWorkAreaWithTabTipClosed(window)));
+                    else
+                        MoveRootVisualTo(rootVisual: moveRootVisualStoryboard.Key, moveTo: 0);
+                }
+            }
+            catch (Exception ex)
+            {
+                ExceptionCatched?.Invoke(ex);
             }
         }
 
-        // ReSharper disable once UnusedMember.Local
-        private static bool IsUIElementInWorkAreaWithTabTipOpened(UIElement element)
+        internal static void GetUIElementInToWorkAreaWithTabTipOpened(UIElement element)
         {
-            return GetWorkAreaWithTabTipOpened(element).Contains(GetUIElementRect(element));
-        }
-
-        // ReSharper disable once UnusedMember.Local
-        private static bool IsUIElementInWorkArea(UIElement element, Rectangle workAreaRectangle)
-        {
-            return workAreaRectangle.Contains(GetUIElementRect(element));
-        }
-
-        private static FrameworkElement GetRootVisualForAnimation(DependencyObject element)
-        {
-            Window rootWindow = Window.GetWindow(element);
-
-            if (rootWindow?.WindowState != WindowState.Maximized)
-                return rootWindow;
-            else
-                return VisualTreeHelper.GetChild(rootWindow, 0) as FrameworkElement;
-        }
-
-        private static double GetYOffsetToMoveUIElementInToWorkArea(Rectangle uiElementRectangle, Rectangle workAreaRectangle)
-        {
-            const double noOffset = 0;
-            const int paddingTop = 30;
-            const int paddingBottom = 10;
-
-            if (uiElementRectangle.Top >= workAreaRectangle.Top &&
-                uiElementRectangle.Bottom <= workAreaRectangle.Bottom)                             // UIElement is in work area
-                return noOffset;
-
-            if (uiElementRectangle.Top < workAreaRectangle.Top)                                    // Top of UIElement higher than work area
-                return workAreaRectangle.Top - uiElementRectangle.Top + paddingTop;                // positive value to move down
-            else                                                                                   // Botom of UIElement lower than work area
+            try
             {
-                int offset = workAreaRectangle.Bottom - uiElementRectangle.Bottom - paddingBottom; // negative value to move up
-                if (uiElementRectangle.Top > (workAreaRectangle.Top - offset))                     // will Top of UIElement be in work area if offset applied?
-                    return offset;                                                                 // negative value to move up
+                FrameworkElement rootVisualForAnimation = GetRootVisualForAnimation(element);
+                Rectangle workAreaWithTabTipOpened = GetWorkAreaWithTabTipOpened(element);
+
+                Rectangle uiElementRectangle;
+                Window window = rootVisualForAnimation as Window;
+                if (window != null && workAreaWithTabTipOpened.Height >= window.Height)
+                    uiElementRectangle = GetWindowRectangle(window);
                 else
-                    return workAreaRectangle.Top - uiElementRectangle.Top + paddingTop;            // negative value to move up, but only to the point, where top 
-                                                                                                   // of UIElement is just below top bound of work area
+                    uiElementRectangle = GetUIElementRect(element);
+
+                MoveRootVisualBy(
+                    rootVisual: rootVisualForAnimation,
+                    moveBy: GetYOffsetToMoveUIElementInToWorkArea(
+                        uiElementRectangle: uiElementRectangle,
+                        workAreaRectangle: workAreaWithTabTipOpened));
+            }
+            catch (Exception ex)
+            {
+                ExceptionCatched?.Invoke(ex);
             }
         }
 
-        private static Storyboard GetOrCreateMoveRootVisualStoryboard(FrameworkElement visualRoot)
-        {
-            if (MoveRootVisualStoryboards.ContainsKey(visualRoot))
-                return MoveRootVisualStoryboards[visualRoot];
-            else
-                return CreateMoveRootVisualStoryboard(visualRoot);
-        }
+        #endregion Internal Methods
+
+        #region Private Methods
 
         private static Storyboard CreateMoveRootVisualStoryboard(FrameworkElement visualRoot)
         {
@@ -164,7 +89,7 @@ namespace WPFTabTip
 
             DoubleAnimation moveAnimation = new DoubleAnimation
             {
-                EasingFunction = new CircleEase {EasingMode = EasingMode.EaseOut},
+                EasingFunction = new CircleEase { EasingMode = EasingMode.EaseOut },
                 Duration = new Duration(TimeSpan.FromSeconds(0.35)),
                 FillBehavior = (visualRoot is Window) ? FillBehavior.Stop : FillBehavior.HoldEnd
             };
@@ -185,33 +110,130 @@ namespace WPFTabTip
             return moveRootVisualStoryboard;
         }
 
-        private static void SubscribeToWindowStateChangedToMoveRootVisual(FrameworkElement visualRoot)
-        {
-            // ReSharper disable once CanBeReplacedWithTryCastAndCheckForNull
-            if (visualRoot is Window)
-            {
-                Window window = (Window)visualRoot;
+        private static Rectangle GetCurrentScreenBounds(DependencyObject element) =>
+            new Screen(Window.GetWindow(element)).Bounds.ToRectangleInLogicalUnits(element);
 
-                window.StateChanged += (sender, args) =>
-                {
-                    if (window.WindowState == WindowState.Normal)
-                        MoveRootVisualBy(
-                            rootVisual: window,
-                            moveBy: GetYOffsetToMoveUIElementInToWorkArea(
-                                uiElementRectangle: GetWindowRectangle(window),
-                                workAreaRectangle: GetWorkAreaWithTabTipClosed(window)));
-                };
-            }
+        private static Point GetCurrentUIElementPoint(Visual element) => element.PointToScreen(new Point(0, 0)).ToPointInLogicalUnits(element);
+
+        // ReSharper disable once UnusedMember.Local
+        private static Point GetCurrentUIElementPointRelativeToRoot(UIElement element)
+        {
+            return element.TransformToAncestor(GetRootVisualForAnimation(element)).Transform(new Point(0, 0));
+        }
+
+        private static Storyboard GetOrCreateMoveRootVisualStoryboard(FrameworkElement visualRoot)
+        {
+            if (MoveRootVisualStoryboards.ContainsKey(visualRoot))
+                return MoveRootVisualStoryboards[visualRoot];
             else
+                return CreateMoveRootVisualStoryboard(visualRoot);
+        }
+
+        private static FrameworkElement GetRootVisualForAnimation(DependencyObject element)
+        {
+            Window rootWindow = Window.GetWindow(element);
+
+            if (rootWindow?.WindowState != WindowState.Maximized)
+                return rootWindow;
+            else
+                return VisualTreeHelper.GetChild(rootWindow, 0) as FrameworkElement;
+        }
+
+        private static Rectangle GetUIElementRect(UIElement element)
+        {
+            Rect rect = element.RenderTransform.TransformBounds(new Rect(GetCurrentUIElementPoint(element), element.RenderSize));
+
+            return Rectangle.FromLTRB(
+                left: (int)rect.Left,
+                top: (int)rect.Top,
+                right: (int)rect.Right,
+                bottom: (int)rect.Bottom);
+        }
+
+        private static Rectangle GetWindowRectangle(Window window)
+        {
+            return Rectangle.FromLTRB(
+                left: (int)window.Left,
+                top: (int)window.Top,
+                right: (int)(window.Left + window.Width),
+                bottom: (int)(window.Top + window.Height));
+        }
+
+        private static Rectangle GetWorkAreaWithTabTipClosed(DependencyObject element)
+        {
+            Rectangle currentScreenBounds = GetCurrentScreenBounds(element);
+            Taskbar taskbar = new Taskbar();
+            Rectangle taskbarBounds = taskbar.Bounds.ToRectangleInLogicalUnits(element);
+
+            switch (taskbar.Position)
             {
-                Window window = Window.GetWindow(visualRoot);
-                if (window != null)
-                    window.StateChanged += (sender, args) =>
-                    {
-                        if (window.WindowState == WindowState.Normal)
-                            MoveRootVisualTo(visualRoot, 0);
-                    };
+                case TaskbarPosition.Bottom:
+                    return Rectangle.FromLTRB(
+                        left: currentScreenBounds.Left,
+                        top: currentScreenBounds.Top,
+                        right: currentScreenBounds.Right,
+                        bottom: taskbarBounds.Top);
+
+                case TaskbarPosition.Top:
+                    return Rectangle.FromLTRB(
+                        left: currentScreenBounds.Left,
+                        top: taskbarBounds.Bottom,
+                        right: currentScreenBounds.Right,
+                        bottom: currentScreenBounds.Bottom);
+
+                default:
+                    return currentScreenBounds;
             }
+        }
+
+        private static Rectangle GetWorkAreaWithTabTipOpened(DependencyObject element)
+        {
+            Rectangle workAreaWithTabTipClosed = GetWorkAreaWithTabTipClosed(element);
+
+            int tabTipRectangleTop = TabTip.GetWouldBeTabTipRectangle().ToRectangleInLogicalUnits(element).Top;
+
+            int bottom = (tabTipRectangleTop == 0) ? workAreaWithTabTipClosed.Bottom / 2 : tabTipRectangleTop; // in case TabTip is not yet opened
+
+            return Rectangle.FromLTRB(
+                left: workAreaWithTabTipClosed.Left,
+                top: workAreaWithTabTipClosed.Top,
+                right: workAreaWithTabTipClosed.Right,
+                bottom: bottom);
+        }
+
+        private static double GetYOffsetToMoveUIElementInToWorkArea(Rectangle uiElementRectangle, Rectangle workAreaRectangle)
+        {
+            const double noOffset = 0;
+            const int paddingTop = 30;
+            const int paddingBottom = 10;
+
+            if (uiElementRectangle.Top >= workAreaRectangle.Top &&
+                uiElementRectangle.Bottom <= workAreaRectangle.Bottom)                             // UIElement is in work area
+                return noOffset;
+
+            if (uiElementRectangle.Top < workAreaRectangle.Top)                                    // Top of UIElement higher than work area
+                return workAreaRectangle.Top - uiElementRectangle.Top + paddingTop;                // positive value to move down
+            else                                                                                   // Botom of UIElement lower than work area
+            {
+                int offset = workAreaRectangle.Bottom - uiElementRectangle.Bottom - paddingBottom; // negative value to move up
+                if (uiElementRectangle.Top > (workAreaRectangle.Top - offset))                     // will Top of UIElement be in work area if offset applied?
+                    return offset;                                                                 // negative value to move up
+                else
+                    return workAreaRectangle.Top - uiElementRectangle.Top + paddingTop;            // negative value to move up, but only to the point, where top
+                                                                                                   // of UIElement is just below top bound of work area
+            }
+        }
+
+        // ReSharper disable once UnusedMember.Local
+        private static bool IsUIElementInWorkArea(UIElement element, Rectangle workAreaRectangle)
+        {
+            return workAreaRectangle.Contains(GetUIElementRect(element));
+        }
+
+        // ReSharper disable once UnusedMember.Local
+        private static bool IsUIElementInWorkAreaWithTabTipOpened(UIElement element)
+        {
+            return GetWorkAreaWithTabTipOpened(element).Contains(GetUIElementRect(element));
         }
 
         private static void MoveRootVisualBy(FrameworkElement rootVisual, double moveBy)
@@ -265,64 +287,60 @@ namespace WPFTabTip
             moveRootVisualStoryboard.Begin();
         }
 
-        internal static void GetUIElementInToWorkAreaWithTabTipOpened(UIElement element)
+        private static void SubscribeToWindowStateChangedToMoveRootVisual(FrameworkElement visualRoot)
         {
-            try
+            // ReSharper disable once CanBeReplacedWithTryCastAndCheckForNull
+            if (visualRoot is Window)
             {
-                FrameworkElement rootVisualForAnimation = GetRootVisualForAnimation(element);
-                Rectangle workAreaWithTabTipOpened = GetWorkAreaWithTabTipOpened(element);
+                Window window = (Window)visualRoot;
 
-                Rectangle uiElementRectangle;
-                Window window = rootVisualForAnimation as Window;
-                if (window != null && workAreaWithTabTipOpened.Height >= window.Height)
-                    uiElementRectangle = GetWindowRectangle(window);
-                else
-                    uiElementRectangle = GetUIElementRect(element);
-
-                MoveRootVisualBy(
-                    rootVisual: rootVisualForAnimation,
-                    moveBy: GetYOffsetToMoveUIElementInToWorkArea(
-                        uiElementRectangle: uiElementRectangle,
-                        workAreaRectangle: workAreaWithTabTipOpened));
-            }
-            catch (Exception ex)
-            {
-                ExceptionCatched?.Invoke(ex);
-            }
-        }
-
-        private static Rectangle GetWindowRectangle(Window window)
-        {
-            return Rectangle.FromLTRB(
-                left: (int)window.Left, 
-                top: (int)window.Top, 
-                right: (int)(window.Left + window.Width), 
-                bottom: (int)(window.Top + window.Height));
-        }
-
-        internal static void GetEverythingInToWorkAreaWithTabTipClosed()
-        {
-            try
-            {
-                foreach (KeyValuePair<FrameworkElement, Storyboard> moveRootVisualStoryboard in MoveRootVisualStoryboards)
+                window.StateChanged += (sender, args) =>
                 {
-                    Window window = moveRootVisualStoryboard.Key as Window;
-                    // if window exist also check if it has not been closed
-                    if (window != null && new WindowInteropHelper(window).Handle != IntPtr.Zero)
+                    if (window.WindowState == WindowState.Normal)
                         MoveRootVisualBy(
                             rootVisual: window,
                             moveBy: GetYOffsetToMoveUIElementInToWorkArea(
                                 uiElementRectangle: GetWindowRectangle(window),
                                 workAreaRectangle: GetWorkAreaWithTabTipClosed(window)));
-                    else
-                        MoveRootVisualTo(rootVisual: moveRootVisualStoryboard.Key, moveTo: 0);
-                }
+                };
             }
-            catch (Exception ex)
+            else
             {
-                ExceptionCatched?.Invoke(ex);
+                Window window = Window.GetWindow(visualRoot);
+                if (window != null)
+                    window.StateChanged += (sender, args) =>
+                    {
+                        if (window.WindowState == WindowState.Normal)
+                            MoveRootVisualTo(visualRoot, 0);
+                    };
             }
-        } 
+        }
 
+        private static Point ToPointInLogicalUnits(this Point point, DependencyObject element)
+        {
+            const float logicalUnitDpi = 96.0f;
+
+            // ReSharper disable once AssignNullToNotNullAttribute
+            IntPtr windowHandle = new WindowInteropHelper(Window.GetWindow(element)).EnsureHandle();
+
+            using (Graphics graphics = Graphics.FromHwnd(windowHandle))
+                return new Point(x: point.X * logicalUnitDpi / graphics.DpiX, y: point.Y * logicalUnitDpi / graphics.DpiY);
+        }
+
+        private static Rectangle ToRectangleInLogicalUnits(this Rectangle rectangleToConvert, DependencyObject element)
+        {
+            const float logicalUnitDpi = 96.0f;
+            // ReSharper disable once AssignNullToNotNullAttribute
+            IntPtr windowHandle = new WindowInteropHelper(Window.GetWindow(element)).EnsureHandle();
+
+            using (Graphics graphics = Graphics.FromHwnd(windowHandle))
+                return Rectangle.FromLTRB(
+                    left: (int)(rectangleToConvert.Left * logicalUnitDpi / graphics.DpiX),
+                    top: (int)(rectangleToConvert.Top * logicalUnitDpi / graphics.DpiY),
+                    right: (int)(rectangleToConvert.Right * logicalUnitDpi / graphics.DpiX),
+                    bottom: (int)(rectangleToConvert.Bottom * logicalUnitDpi / graphics.DpiY));
+        }
+
+        #endregion Private Methods
     }
 }
